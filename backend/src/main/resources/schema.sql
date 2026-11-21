@@ -15,5 +15,6 @@ CREATE TABLE IF NOT EXISTS application (
     approved_amount DECIMAL(12,2),
     actual_amount   DECIMAL(12,2),
     status          VARCHAR(20)   NOT NULL,
+    reason          VARCHAR(200),
     CONSTRAINT fk_application_project FOREIGN KEY (project_id) REFERENCES project(id)
 );
