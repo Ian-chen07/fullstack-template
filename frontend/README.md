@@ -67,15 +67,15 @@ npm run dev        # 启动开发服务器
 | 批准 500 | teacher1（老师） | 500 | 500 | 0 | APPROVED |
 | 结算 460 | finance1（财务） | 540 | 0 | 460 | SETTLED |
 
-![登录页](../截图/01-登录页.png)
+![登录页](../docs/images/01-登录页.png)
 
-![member1 登录后：1000/0/0，一条 600 元草稿](../截图/02-成员登录.png)
+![member1 登录后：1000/0/0，一条 600 元草稿](../docs/images/02-成员登录.png)
 
-![提交后：400/600/0，状态 PENDING_L1；成员看不到批准按钮](../截图/03-提交后.png)
+![提交后：400/600/0，状态 PENDING_L1；成员看不到批准按钮](../docs/images/03-提交后.png)
 
-![teacher1 批准 500 后：500/500/0，状态 APPROVED](../截图/04-批准后.png)
+![teacher1 批准 500 后：500/500/0，状态 APPROVED](../docs/images/04-批准后.png)
 
-![finance1 结算 460 后：540/0/460，状态 SETTLED](../截图/05-结算后.png)
+![finance1 结算 460 后：540/0/460，状态 SETTLED](../docs/images/05-结算后.png)
 
 ## 构建
 
