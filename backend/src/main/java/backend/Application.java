@@ -17,6 +17,8 @@ public class Application {
 
     public Long projectId;
 
+    public Long applicantId;
+
     public String purpose;
 
     public BigDecimal amount;

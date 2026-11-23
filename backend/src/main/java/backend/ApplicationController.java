@@ -14,10 +14,12 @@ public class ApplicationController {
 
     private final ApplicationRepository repository;
     private final BudgetService service;
+    private final AuthService auth;
 
-    public ApplicationController(ApplicationRepository repository, BudgetService service) {
+    public ApplicationController(ApplicationRepository repository, BudgetService service, AuthService auth) {
         this.repository = repository;
         this.service = service;
+        this.auth = auth;
     }
 
     @GetMapping("/api/applications")
@@ -27,48 +29,48 @@ public class ApplicationController {
 
     @PostMapping("/api/applications")
     public Application create(
-            @RequestHeader(value = "X-Role", defaultValue = "") String role,
+            @RequestHeader(value = "X-Token", defaultValue = "") String token,
             @RequestParam String purpose,
             @RequestParam BigDecimal amount) {
-        return service.create(role, purpose, amount);
+        return service.create(auth.require(token), purpose, amount);
     }
 
     @PostMapping("/api/applications/{id}/submit")
     public Application submit(
-            @RequestHeader(value = "X-Role", defaultValue = "") String role,
+            @RequestHeader(value = "X-Token", defaultValue = "") String token,
             @PathVariable Long id) {
-        return service.submit(role, id);
+        return service.submit(auth.require(token), id);
     }
 
     @PostMapping("/api/applications/{id}/approve")
     public Application approve(
-            @RequestHeader(value = "X-Role", defaultValue = "") String role,
+            @RequestHeader(value = "X-Token", defaultValue = "") String token,
             @PathVariable Long id,
             @RequestParam BigDecimal amount) {
-        return service.approve(role, id, amount);
-    }
-
-    @PostMapping("/api/applications/{id}/settle")
-    public Application settle(
-            @RequestHeader(value = "X-Role", defaultValue = "") String role,
-            @PathVariable Long id,
-            @RequestParam BigDecimal actual) {
-        return service.settle(role, id, actual);
+        return service.approve(auth.require(token), id, amount);
     }
 
     @PostMapping("/api/applications/{id}/reject")
     public Application reject(
-            @RequestHeader(value = "X-Role", defaultValue = "") String role,
+            @RequestHeader(value = "X-Token", defaultValue = "") String token,
             @PathVariable Long id,
             @RequestParam String reason) {
-        return service.reject(role, id, reason);
+        return service.reject(auth.require(token), id, reason);
     }
 
     @PostMapping("/api/applications/{id}/cancel")
     public Application cancel(
-            @RequestHeader(value = "X-Role", defaultValue = "") String role,
+            @RequestHeader(value = "X-Token", defaultValue = "") String token,
             @PathVariable Long id,
             @RequestParam String reason) {
-        return service.cancel(role, id, reason);
+        return service.cancel(auth.require(token), id, reason);
+    }
+
+    @PostMapping("/api/applications/{id}/settle")
+    public Application settle(
+            @RequestHeader(value = "X-Token", defaultValue = "") String token,
+            @PathVariable Long id,
+            @RequestParam BigDecimal actual) {
+        return service.settle(auth.require(token), id, actual);
     }
 }
