@@ -1,4 +1,6 @@
-package backend;
+package com.ianchen.backend.repository;
+
+import com.ianchen.backend.entity.Project;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 

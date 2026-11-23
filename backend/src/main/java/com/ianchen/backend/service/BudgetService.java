@@ -1,6 +1,13 @@
-package backend;
+package com.ianchen.backend.service;
+
+import com.ianchen.backend.entity.Application;
+import com.ianchen.backend.entity.Project;
+import com.ianchen.backend.entity.User;
+import com.ianchen.backend.repository.ApplicationRepository;
+import com.ianchen.backend.repository.ProjectRepository;
 
 import java.math.BigDecimal;
+import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,9 +24,26 @@ public class BudgetService {
         this.projects = projects;
     }
 
+    public List<Application> listFor(User user) {
+        if ("member".equals(user.role)) {
+            return applications.findByApplicantIdOrderByIdAsc(user.id);
+        }
+        return applications.findByProjectIdOrderByIdAsc(user.projectId);
+    }
+
+    public Application getFor(User user, Long applicationId) {
+        Application app = findApplication(applicationId);
+        if ("member".equals(user.role)) {
+            requireOwnership(user, app);
+        } else {
+            requireSameProject(user, app);
+        }
+        return app;
+    }
+
     @Transactional
-    public Application create(String role, String purpose, BigDecimal amount) {
-        requireRole(role, "member", "只有成员可以提交申请");
+    public Application create(User user, String purpose, BigDecimal amount) {
+        requireRole(user, "member", "只有成员可以提交申请");
 
         if (purpose == null || purpose.isBlank()) {
             throw error("请填写用途");
@@ -28,7 +52,8 @@ public class BudgetService {
         requireTwoDecimals(amount, "申请金额");
 
         Application app = new Application();
-        app.projectId = 1L;
+        app.projectId = user.projectId;
+        app.applicantId = user.id;
         app.purpose = purpose;
         app.amount = amount;
         app.status = "DRAFT";
@@ -36,12 +61,13 @@ public class BudgetService {
     }
 
     @Transactional
-    public Application submit(String role, Long applicationId) {
-        requireRole(role, "member", "只有成员可以提交申请");
+    public Application submit(User user, Long applicationId) {
+        requireRole(user, "member", "只有成员可以提交申请");
 
         Application app = findApplication(applicationId);
-        Project project = findProject(app);
+        requireOwnership(user, app);
 
+        Project project = findProject(app);
         if (!"DRAFT".equals(app.status)) {
             throw error("只有草稿可以提交");
         }
@@ -60,12 +86,14 @@ public class BudgetService {
     }
 
     @Transactional
-    public Application approve(String role, Long applicationId, BigDecimal amount) {
-        requireRole(role, "teacher", "只有老师可以批准");
+    public Application approve(User user, Long applicationId, BigDecimal amount) {
+        requireRole(user, "teacher", "只有老师可以批准");
 
         Application app = findApplication(applicationId);
-        Project project = findProject(app);
+        requireOtherApplicant(user, app);
+        requireSameProject(user, app);
 
+        Project project = findProject(app);
         if (!"PENDING_L1".equals(app.status)) {
             throw error("只有待审批的申请可以批准");
         }
@@ -86,12 +114,63 @@ public class BudgetService {
     }
 
     @Transactional
-    public Application settle(String role, Long applicationId, BigDecimal actual) {
-        requireRole(role, "finance", "只有财务可以结算");
+    public Application reject(User user, Long applicationId, String reason) {
+        requireRole(user, "teacher", "只有老师可以拒绝");
 
         Application app = findApplication(applicationId);
-        Project project = findProject(app);
+        requireOtherApplicant(user, app);
+        requireSameProject(user, app);
 
+        Project project = findProject(app);
+        if (!"PENDING_L1".equals(app.status)) {
+            throw error("只有待审批的申请可以拒绝");
+        }
+        if (reason == null || reason.isBlank()) {
+            throw error("请填写拒绝原因");
+        }
+
+        project.frozenAmount = project.frozenAmount.subtract(app.amount);
+        project.availableAmount = project.availableAmount.add(app.amount);
+        app.status = "REJECTED";
+        app.reason = reason;
+
+        projects.save(project);
+        return applications.save(app);
+    }
+
+    @Transactional
+    public Application cancel(User user, Long applicationId, String reason) {
+        requireRole(user, "member", "只有成员可以取消自己的申请");
+
+        Application app = findApplication(applicationId);
+        requireOwnership(user, app);
+
+        Project project = findProject(app);
+        if (!"PENDING_L1".equals(app.status) && !"APPROVED".equals(app.status)) {
+            throw error("只有待审批或已批准的申请可以取消");
+        }
+        if (reason == null || reason.isBlank()) {
+            throw error("请填写取消原因");
+        }
+
+        BigDecimal held = "APPROVED".equals(app.status) ? app.approvedAmount : app.amount;
+        project.frozenAmount = project.frozenAmount.subtract(held);
+        project.availableAmount = project.availableAmount.add(held);
+        app.status = "CANCELED";
+        app.reason = reason;
+
+        projects.save(project);
+        return applications.save(app);
+    }
+
+    @Transactional
+    public Application settle(User user, Long applicationId, BigDecimal actual) {
+        requireRole(user, "finance", "只有财务可以结算");
+
+        Application app = findApplication(applicationId);
+        requireSameProject(user, app);
+
+        Project project = findProject(app);
         if (!"APPROVED".equals(app.status)) {
             throw error("只有已批准的申请可以结算");
         }
@@ -113,56 +192,27 @@ public class BudgetService {
         return applications.save(app);
     }
 
-    @Transactional
-    public Application reject(String role, Long applicationId, String reason) {
-        requireRole(role, "teacher", "只有老师可以拒绝");
-
-        Application app = findApplication(applicationId);
-        Project project = findProject(app);
-
-        if (!"PENDING_L1".equals(app.status)) {
-            throw error("只有待审批的申请可以拒绝");
-        }
-        if (reason == null || reason.isBlank()) {
-            throw error("请填写拒绝原因");
-        }
-
-        project.frozenAmount = project.frozenAmount.subtract(app.amount);
-        project.availableAmount = project.availableAmount.add(app.amount);
-        app.status = "REJECTED";
-        app.reason = reason;
-
-        projects.save(project);
-        return applications.save(app);
-    }
-
-    @Transactional
-    public Application cancel(String role, Long applicationId, String reason) {
-        requireRole(role, "member", "只有成员可以取消自己的申请");
-
-        Application app = findApplication(applicationId);
-        Project project = findProject(app);
-
-        if (!"PENDING_L1".equals(app.status) && !"APPROVED".equals(app.status)) {
-            throw error("只有待审批或已批准的申请可以取消");
-        }
-        if (reason == null || reason.isBlank()) {
-            throw error("请填写取消原因");
-        }
-
-        BigDecimal held = "APPROVED".equals(app.status) ? app.approvedAmount : app.amount;
-        project.frozenAmount = project.frozenAmount.subtract(held);
-        project.availableAmount = project.availableAmount.add(held);
-        app.status = "CANCELED";
-        app.reason = reason;
-
-        projects.save(project);
-        return applications.save(app);
-    }
-
-    private void requireRole(String role, String expected, String message) {
-        if (!expected.equals(role)) {
+    private void requireRole(User user, String expected, String message) {
+        if (!expected.equals(user.role)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, message);
+        }
+    }
+
+    private void requireOwnership(User user, Application app) {
+        if (app.applicantId == null || !app.applicantId.equals(user.id)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "只能操作自己的申请");
+        }
+    }
+
+    private void requireOtherApplicant(User user, Application app) {
+        if (app.applicantId != null && app.applicantId.equals(user.id)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "不能审批自己的申请");
+        }
+    }
+
+    private void requireSameProject(User user, Application app) {
+        if (user.projectId == null || !user.projectId.equals(app.projectId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "不能操作其他项目的申请");
         }
     }
 

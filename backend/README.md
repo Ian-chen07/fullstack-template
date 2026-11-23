@@ -11,6 +11,7 @@
 | 构建工具 | Maven Wrapper（`./mvnw`，本机无需另装 Maven） |
 | 数据库 | H2 文件库 + Spring Data JPA，数据文件在 `data/fund.mv.db` |
 | 监听端口 | 8080 |
+| 登录方式 | 账号密码登录，返回内存 token；后续请求带 `X-Token` 头 |
 
 目录约定：
 
@@ -41,66 +42,69 @@ Tomcat started on port 8080 (http)
 Started BackendApplication in x.xxx seconds
 ```
 
-验证（另开终端）：
+## 测试账号与初始数据
 
-```bash
-curl http://localhost:8080/api/project
-curl http://localhost:8080/api/applications
-```
-
-## 数据库控制台
-
-启动后端后，浏览器打开 `http://localhost:8080/h2-console`，填：
-
-- JDBC URL：`jdbc:h2:file:./data/fund`
-- User Name：`sa`
-- Password：留空
-
-连上后可以查看、修改两张表，也能手工插入演示数据。
-
-重置演示数据：停服务 → 删 `data/` 目录 → 重启（自动建表）→ 用控制台插入项目和申请。种子数据示例：
+数据库是文件库，首次启动后需要写入初始数据（表结构自动建好）。打开 `http://localhost:8080/h2-console`（JDBC URL `jdbc:h2:file:./data/fund`，用户 `sa`，密码空），执行：
 
 ```sql
 INSERT INTO project (id, name, total_amount, available_amount, frozen_amount, used_amount)
 VALUES (1, '实验室经费', 1000.00, 1000.00, 0.00, 0.00);
 
-INSERT INTO application (project_id, purpose, amount, status)
-VALUES (1, '购买传感器', 600.00, 'DRAFT');
+INSERT INTO users (username, password, role, project_id) VALUES ('member1',  '123456', 'member',  1);
+INSERT INTO users (username, password, role, project_id) VALUES ('teacher1', '123456', 'teacher', 1);
+INSERT INTO users (username, password, role, project_id) VALUES ('finance1', '123456', 'finance', 1);
 ```
+
+| 账号 | 密码 | 角色 | 能做什么 |
+|---|---|---|---|
+| `member1` | `123456` | 成员 | 新建申请、提交、取消自己的申请 |
+| `teacher1` | `123456` | 老师 | 批准、拒绝同项目的申请（不能批自己的） |
+| `finance1` | `123456` | 财务 | 结算同项目的已批准申请 |
+
+密码是明文存储，仅用于本地演示，不能用于真实产品。
+
+重置演示数据：停服务 → 删 `data/` 目录 → 重启 → 重新执行上面的 INSERT。
 
 ## 接口
 
-角色通过请求头 `X-Role` 传入：`member`（成员）、`teacher`（老师）、`finance`（财务）。
+除登录外，所有写接口都要带请求头 `X-Token`（登录接口返回的 token）。
 
-| 方法 | 路径 | 允许角色 | 说明 |
-|---|---|---|---|
-| GET | `/api/ping` | 不限 | 连通性检查，返回 `pong` |
-| GET | `/api/project` | 不限 | 项目与三个金额 |
-| GET | `/api/applications` | 不限 | 申请列表 |
-| POST | `/api/applications` | member | 新建草稿，参数 `purpose`、`amount` |
-| POST | `/api/applications/{id}/submit` | member | 提交草稿，冻结经费 |
-| POST | `/api/applications/{id}/approve` | teacher | 批准，参数 `amount`；差额退回可用 |
-| POST | `/api/applications/{id}/reject` | teacher | 拒绝，参数 `reason`；释放冻结 |
-| POST | `/api/applications/{id}/cancel` | member | 取消，参数 `reason`；释放剩余冻结 |
-| POST | `/api/applications/{id}/settle` | finance | 结算，参数 `actual`；冻结转已使用 |
+| 方法 | 路径 | 需要登录 | 角色 | 说明 |
+|---|---|---|---|---|
+| POST | `/api/login` | 否 | — | 参数 `username`、`password`，返回 `{token, username, role}` |
+| POST | `/api/logout` | 是 | — | 带 `X-Token`，作废该 token |
+| GET | `/api/ping` | 否 | — | 连通性检查，返回 `pong` |
+| GET | `/api/project` | 否 | — | 项目与三个金额 |
+| GET | `/api/applications` | 是 | 全部 | 申请列表：成员只看自己的，老师/财务看本项目 |
+| GET | `/api/applications/{id}` | 是 | 全部 | 单条申请，按归属校验 |
+| POST | `/api/applications` | 是 | member | 新建草稿，JSON body：`{"purpose":"...","amount":100}` |
+| POST | `/api/applications/{id}/submit` | 是 | member | 提交自己的草稿，冻结经费 |
+| POST | `/api/applications/{id}/approve` | 是 | teacher | 批准他人申请，参数 `amount` |
+| POST | `/api/applications/{id}/reject` | 是 | teacher | 拒绝他人申请，参数 `reason` |
+| POST | `/api/applications/{id}/cancel` | 是 | member | 取消自己的申请，参数 `reason` |
+| POST | `/api/applications/{id}/settle` | 是 | finance | 结算，参数 `actual` |
 
 示例：
 
 ```bash
-# 成员新建草稿
-curl -X POST "http://localhost:8080/api/applications?purpose=买试剂&amount=200" -H "X-Role: member"
+# 登录，拿到 token
+curl -X POST "http://localhost:8080/api/login?username=member1&password=123456"
 
-# 成员提交
-curl -X POST http://localhost:8080/api/applications/1/submit -H "X-Role: member"
-
-# 老师批准 500
-curl -X POST "http://localhost:8080/api/applications/1/approve?amount=500" -H "X-Role: teacher"
-
-# 财务结算 460
-curl -X POST "http://localhost:8080/api/applications/1/settle?actual=460" -H "X-Role: finance"
+# 用 token 新建草稿（JSON body）
+curl -X POST "http://localhost:8080/api/applications" \
+  -H "X-Token: <token>" -H "Content-Type: application/json" \
+  -d '{"purpose":"买试剂","amount":200}'
 ```
 
-角色不匹配返回 403 并附带原因，例如"只有老师可以批准"。
+## 权限校验顺序
+
+每个写接口按这个顺序检查，命中就返回对应错误：
+
+1. 有没有登录 → 401“请先登录”
+2. 角色对不对 → 403（如“只有老师可以批准”）
+3. 是不是自己的单 / 是不是别人的单 / 是不是同项目 → 403（“只能操作自己的申请”“不能审批自己的申请”“不能操作其他项目的申请”）
+4. 状态对不对 → 400（如“只有待审批的申请可以批准”）
+5. 金额规则 → 400（如“批准金额不能超过申请金额”“最多两位小数”）
 
 ## 业务规则
 
@@ -111,10 +115,12 @@ curl -X POST "http://localhost:8080/api/applications/1/settle?actual=460" -H "X-
 - 结算：`APPROVED → SETTLED`，冻结清零、已使用加实际花费、剩余退回可用；允许零元，不得超过批准额。
 - 每个动作都标了 `@Transactional`；金额一律用 `BigDecimal`，且限制最多两位小数。
 
-## 角色与权限的边界
+## 当前边界
 
-- 已实现：按 `X-Role` 校验"这个角色能不能做这个动作"。
-- **未实现**：登录与真实用户身份；因此"老师不能审批自己的申请""成员只能操作自己的申请"这两条**没有**做到——请求头里的角色是前端下拉框模拟的。
+- token 存在内存里，重启服务后需要重新登录。
+- 只支持一个项目，`projectId` 来自登录用户的 `project_id`。
+- 密码明文存储，仅演示用。
+- 列表没有分页、搜索。
 
 ## 构建与测试
 
@@ -127,21 +133,12 @@ cd backend
 ## 验证记录
 
 - 2026-11-04：`./mvnw spring-boot:run` 启动成功；`curl /api/ping` 返回 `pong`（200）；`/` 返回 404。
-- 2026-11-05：H2 文件库建表成功；插入项目与申请后重启服务，数据仍在。
+- 2026-11-05：H2 文件库建表成功；插入数据后重启服务，数据仍在。
 - 2026-11-06：`/api/project`、`/api/applications` 返回数据库数据；提交/批准/结算接口经 curl 验证，`400/600 → 500/500 → ...` 数字正确，重复提交返回 400。
 - 2026-11-08：按文档例子完整走通 `1000/0/0 → 400/600/0 → 500/500/0 → 540/0/460`。
-- 2026-11-21：`POST /api/applications` 新建草稿（修复了 `id` 缺 `@GeneratedValue` 导致 500 的问题）；`X-Role: member` 调批准返回 403、`teacher` 返回 200；`settle` 用 `member` 返回 403、`finance` 返回 200；拒绝（缺原因 400、正常拒绝释放冻结）、取消（待审批与已批准两种情况都只释放剩余冻结）均验证通过；`approve?amount=5.001` 返回 400“批准金额最多两位小数”。
-
-## 尚未完成
-
-- 登录与用户归属校验（见"角色与权限的边界"）。
-- 只支持一个项目（`projectId` 写死为 1），没有项目切换。
-- 列表没有分页、搜索。
-- 没有统一的接口文档（只有本文件的表格）。
-
-## 版本以配置为准
-
-JDK 版本见 `pom.xml` 的 `java.version`，Spring Boot 版本见 `spring-boot-starter-parent`。升级时同步更新本文件的表格。
+- 2026-11-21：新建接口修复（`@GeneratedValue`）；拒绝、取消、小数校验、角色 403 验证通过。
+- 2026-11-23：登录与归属校验上线——未登录 401、跨用户操作 403“只能操作自己的申请”、老师批自己的单 403“不能审批自己的申请”；正常流程仍走通到 `540/0/460`。
+- 2026-11-23（事务回滚）：临时在 `approve` 里 `projects.save()` → `projects.findAll()`（强制刷库）→ 抛 `RuntimeException`。请求返回 500，项目仍为 `400/600/0`、申请仍为 `PENDING_L1`，说明回滚生效；验证后已删除临时代码。
 
 ## 官方入口
 

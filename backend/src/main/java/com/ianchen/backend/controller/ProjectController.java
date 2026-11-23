@@ -1,4 +1,7 @@
-package backend;
+package com.ianchen.backend.controller;
+
+import com.ianchen.backend.entity.Project;
+import com.ianchen.backend.repository.ProjectRepository;
 
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;

@@ -1,18 +1,66 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 
+const token = ref(localStorage.getItem('token') || '')
+const me = ref(JSON.parse(localStorage.getItem('me') || 'null'))
+const loginForm = reactive({ username: '', password: '' })
+const loginError = ref('')
+
 const project = ref(null)
 const applications = ref([])
 const message = ref('')
 const messageOk = ref(true)
 const inputs = reactive({})
 const form = reactive({ purpose: '', amount: '' })
-const role = ref('member')
+
+const roleLabel = { member: '成员', teacher: '老师', finance: '财务' }
+
+function saveSession(body) {
+  token.value = body.token
+  me.value = { username: body.username, role: body.role }
+  localStorage.setItem('token', body.token)
+  localStorage.setItem('me', JSON.stringify(me.value))
+}
+
+async function login() {
+  const url =
+    `/api/login?username=${encodeURIComponent(loginForm.username)}` +
+    `&password=${encodeURIComponent(loginForm.password)}`
+  const res = await fetch(url, { method: 'POST' })
+  const body = await res.json()
+  if (!res.ok) {
+    loginError.value = body.message || '登录失败'
+    return
+  }
+  loginError.value = ''
+  saveSession(body)
+  await load()
+}
+
+function logout() {
+  fetch('/api/logout', { method: 'POST', headers: { 'X-Token': token.value } })
+  token.value = ''
+  me.value = null
+  project.value = null
+  applications.value = []
+  localStorage.removeItem('token')
+  localStorage.removeItem('me')
+}
+
+async function authedFetch(url, options = {}) {
+  const headers = { 'X-Token': token.value, ...(options.headers || {}) }
+  return fetch(url, { ...options, headers })
+}
 
 async function load() {
-  const p = await fetch('/api/project')
+  if (!token.value) return
+
+  const p = await authedFetch('/api/project')
+  if (p.status === 401) return logout()
   project.value = await p.json()
-  const a = await fetch('/api/applications')
+
+  const a = await authedFetch('/api/applications')
+  if (a.status === 401) return logout()
   applications.value = await a.json()
 
   applications.value.forEach((item) => {
@@ -28,7 +76,8 @@ async function load() {
 }
 
 async function request(url) {
-  const res = await fetch(url, { method: 'POST', headers: { 'X-Role': role.value } })
+  const res = await authedFetch(url, { method: 'POST' })
+  if (res.status === 401) return logout()
   const body = await res.json()
   messageOk.value = res.ok
   message.value = res.ok ? '操作成功' : body.message
@@ -65,10 +114,17 @@ async function create() {
     message.value = '请填写用途'
     return
   }
-  const res = await fetch(
-    `/api/applications?purpose=${encodeURIComponent(form.purpose)}&amount=${form.amount}`,
-    { method: 'POST', headers: { 'X-Role': role.value } },
-  )
+  if (!form.amount) {
+    messageOk.value = false
+    message.value = '请填写金额'
+    return
+  }
+  const res = await authedFetch('/api/applications', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ purpose: form.purpose, amount: form.amount }),
+  })
+  if (res.status === 401) return logout()
   const body = await res.json()
   messageOk.value = res.ok
   message.value = res.ok ? '已创建草稿' : body.message
@@ -79,84 +135,106 @@ async function create() {
   await load()
 }
 
+function canSubmit() {
+  return me.value?.role === 'member'
+}
+function canApprove() {
+  return me.value?.role === 'teacher'
+}
+function canSettle() {
+  return me.value?.role === 'finance'
+}
+
 onMounted(load)
 </script>
 
 <template>
   <div class="container">
-    <h1>经费申请</h1>
-
-    <div class="cards" v-if="project">
-      <div class="card">
-        <div class="label">可用</div>
-        <div class="value">{{ project.availableAmount }}</div>
-      </div>
-      <div class="card">
-        <div class="label">冻结</div>
-        <div class="value">{{ project.frozenAmount }}</div>
-      </div>
-      <div class="card">
-        <div class="label">已使用</div>
-        <div class="value">{{ project.usedAmount }}</div>
-      </div>
-      <div class="card">
-        <div class="label">总预算</div>
-        <div class="value">{{ project.totalAmount }}</div>
-      </div>
+    <div v-if="!token" class="login">
+      <h1>经费申请 · 登录</h1>
+      <input v-model="loginForm.username" placeholder="用户名，如 member1" class="wide" />
+      <input v-model="loginForm.password" type="password" placeholder="密码" class="wide" />
+      <button @click="login">登录</button>
+      <p v-if="loginError" class="message error">{{ loginError }}</p>
+      <p class="hint">测试账号：member1 / teacher1 / finance1，密码都是 123456</p>
     </div>
 
-    <div class="form">
-      <select v-model="role" class="role">
-        <option value="member">我：成员</option>
-        <option value="teacher">我：老师</option>
-        <option value="finance">我：财务</option>
-      </select>
-      <input v-model="form.purpose" class="wide" placeholder="用途，比如 买试剂" />
-      <input v-model="form.amount" type="number" step="0.01" placeholder="金额" />
-      <button @click="create">新建申请</button>
+    <div v-else>
+      <div class="topbar">
+        <h1>经费申请</h1>
+        <div class="who">
+          当前用户：{{ me?.username }}（{{ roleLabel[me?.role] || me?.role }}）
+          <button class="ghost" @click="logout">退出</button>
+        </div>
+      </div>
+
+      <div class="cards" v-if="project">
+        <div class="card">
+          <div class="label">可用</div>
+          <div class="value">{{ project.availableAmount }}</div>
+        </div>
+        <div class="card">
+          <div class="label">冻结</div>
+          <div class="value">{{ project.frozenAmount }}</div>
+        </div>
+        <div class="card">
+          <div class="label">已使用</div>
+          <div class="value">{{ project.usedAmount }}</div>
+        </div>
+        <div class="card">
+          <div class="label">总预算</div>
+          <div class="value">{{ project.totalAmount }}</div>
+        </div>
+      </div>
+
+      <div class="form" v-if="canSubmit()">
+        <input v-model="form.purpose" class="wide" placeholder="用途，比如 买试剂" />
+        <input v-model="form.amount" type="number" step="0.01" placeholder="金额" />
+        <button @click="create">新建申请</button>
+      </div>
+
+      <p v-if="message" class="message" :class="messageOk ? 'ok' : 'error'">{{ message }}</p>
+
+      <table>
+        <thead>
+          <tr>
+            <th>编号</th><th>用途</th><th>申请</th><th>批准</th><th>实际</th><th>状态</th><th>原因</th><th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="a in applications" :key="a.id">
+            <td>{{ a.id }}</td>
+            <td>{{ a.purpose }}</td>
+            <td>{{ a.amount }}</td>
+            <td>{{ a.approvedAmount ?? '—' }}</td>
+            <td>{{ a.actualAmount ?? '—' }}</td>
+            <td><span class="badge" :class="'s-' + a.status">{{ a.status }}</span></td>
+            <td>{{ a.reason ?? '—' }}</td>
+            <td>
+              <button v-if="a.status === 'DRAFT' && canSubmit()" @click="submit(a.id)">提交</button>
+              <span v-if="a.status === 'PENDING_L1' && canApprove()">
+                <input v-model="inputs['approve-' + a.id]" type="number" step="0.01" />
+                <button @click="approve(a.id)">批准</button>
+                <button class="ghost" @click="reject(a.id)">拒绝</button>
+              </span>
+              <span v-if="a.status === 'APPROVED' && canSettle()">
+                <input v-model="inputs['settle-' + a.id]" type="number" step="0.01" />
+                <button @click="settle(a.id)">结算</button>
+              </span>
+              <button
+                v-if="(a.status === 'PENDING_L1' || a.status === 'APPROVED') && canSubmit()"
+                class="ghost"
+                @click="cancel(a.id)"
+              >
+                取消
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p v-if="!applications.length" class="empty">还没有申请单，用上面的表单新建一条。</p>
     </div>
-
-    <p v-if="message" class="message" :class="messageOk ? 'ok' : 'error'">{{ message }}</p>
-
-    <table>
-      <thead>
-        <tr>
-          <th>编号</th><th>用途</th><th>申请</th><th>批准</th><th>实际</th><th>状态</th><th>原因</th><th>操作</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="a in applications" :key="a.id">
-          <td>{{ a.id }}</td>
-          <td>{{ a.purpose }}</td>
-          <td>{{ a.amount }}</td>
-          <td>{{ a.approvedAmount ?? '—' }}</td>
-          <td>{{ a.actualAmount ?? '—' }}</td>
-          <td><span class="badge" :class="'s-' + a.status">{{ a.status }}</span></td>
-          <td>{{ a.reason ?? '—' }}</td>
-          <td>
-            <button v-if="a.status === 'DRAFT'" @click="submit(a.id)">提交</button>
-            <span v-if="a.status === 'PENDING_L1'">
-              <input v-model="inputs['approve-' + a.id]" type="number" step="0.01" />
-              <button @click="approve(a.id)">批准</button>
-              <button class="ghost" @click="reject(a.id)">拒绝</button>
-            </span>
-            <span v-if="a.status === 'APPROVED'">
-              <input v-model="inputs['settle-' + a.id]" type="number" step="0.01" />
-              <button @click="settle(a.id)">结算</button>
-            </span>
-            <button
-              v-if="a.status === 'PENDING_L1' || a.status === 'APPROVED'"
-              class="ghost"
-              @click="cancel(a.id)"
-            >
-              取消
-            </button>
-          </td>
-        </tr>
-      </tbody>
-    </table>
-
-    <p v-if="!applications.length" class="empty">还没有申请单，用上面的表单新建一条。</p>
   </div>
 </template>
 
@@ -177,6 +255,48 @@ body {
 h1 {
   font-size: 26px;
   margin: 0 0 20px;
+}
+
+.login {
+  max-width: 360px;
+  margin: 80px auto;
+  background: #fff;
+  padding: 28px 24px;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(31, 35, 41, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.login h1 {
+  font-size: 20px;
+  margin: 0 0 8px;
+}
+
+.hint {
+  font-size: 12px;
+  color: #646a73;
+  margin: 4px 0 0;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.topbar h1 {
+  margin: 0;
+}
+
+.who {
+  font-size: 13px;
+  color: #646a73;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .cards {
@@ -253,6 +373,10 @@ input {
   padding: 6px 8px;
   font-size: 13px;
   width: 90px;
+}
+
+.login input.wide {
+  width: auto;
 }
 
 button {

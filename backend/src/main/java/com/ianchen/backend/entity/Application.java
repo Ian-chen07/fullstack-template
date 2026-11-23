@@ -1,4 +1,4 @@
-package backend;
+package com.ianchen.backend.entity;
 
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
@@ -16,6 +16,8 @@ public class Application {
     public Long id;
 
     public Long projectId;
+
+    public Long applicantId;
 
     public String purpose;
 
