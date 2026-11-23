@@ -114,10 +114,16 @@ async function create() {
     message.value = '请填写用途'
     return
   }
-  const res = await authedFetch(
-    `/api/applications?purpose=${encodeURIComponent(form.purpose)}&amount=${form.amount}`,
-    { method: 'POST' },
-  )
+  if (!form.amount) {
+    messageOk.value = false
+    message.value = '请填写金额'
+    return
+  }
+  const res = await authedFetch('/api/applications', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ purpose: form.purpose, amount: form.amount }),
+  })
   if (res.status === 401) return logout()
   const body = await res.json()
   messageOk.value = res.ok

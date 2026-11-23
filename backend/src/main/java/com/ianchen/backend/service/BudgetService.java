@@ -1,6 +1,13 @@
-package backend;
+package com.ianchen.backend.service;
+
+import com.ianchen.backend.entity.Application;
+import com.ianchen.backend.entity.Project;
+import com.ianchen.backend.entity.User;
+import com.ianchen.backend.repository.ApplicationRepository;
+import com.ianchen.backend.repository.ProjectRepository;
 
 import java.math.BigDecimal;
+import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,6 +22,23 @@ public class BudgetService {
     public BudgetService(ApplicationRepository applications, ProjectRepository projects) {
         this.applications = applications;
         this.projects = projects;
+    }
+
+    public List<Application> listFor(User user) {
+        if ("member".equals(user.role)) {
+            return applications.findByApplicantIdOrderByIdAsc(user.id);
+        }
+        return applications.findByProjectIdOrderByIdAsc(user.projectId);
+    }
+
+    public Application getFor(User user, Long applicationId) {
+        Application app = findApplication(applicationId);
+        if ("member".equals(user.role)) {
+            requireOwnership(user, app);
+        } else {
+            requireSameProject(user, app);
+        }
+        return app;
     }
 
     @Transactional

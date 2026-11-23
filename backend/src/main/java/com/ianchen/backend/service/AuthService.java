@@ -1,4 +1,7 @@
-package backend;
+package com.ianchen.backend.service;
+
+import com.ianchen.backend.entity.User;
+import com.ianchen.backend.repository.UserRepository;
 
 import java.util.HashMap;
 import java.util.Map;

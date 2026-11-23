@@ -1,10 +1,17 @@
-package backend;
+package com.ianchen.backend.controller;
+
+import com.ianchen.backend.dto.CreateApplicationRequest;
+import com.ianchen.backend.entity.Application;
+import com.ianchen.backend.entity.User;
+import com.ianchen.backend.service.AuthService;
+import com.ianchen.backend.service.BudgetService;
 
 import java.math.BigDecimal;
 import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -12,27 +19,34 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class ApplicationController {
 
-    private final ApplicationRepository repository;
     private final BudgetService service;
     private final AuthService auth;
 
-    public ApplicationController(ApplicationRepository repository, BudgetService service, AuthService auth) {
-        this.repository = repository;
+    public ApplicationController(BudgetService service, AuthService auth) {
         this.service = service;
         this.auth = auth;
     }
 
     @GetMapping("/api/applications")
-    public List<Application> list() {
-        return repository.findAll();
+    public List<Application> list(
+            @RequestHeader(value = "X-Token", defaultValue = "") String token) {
+        User user = auth.require(token);
+        return service.listFor(user);
+    }
+
+    @GetMapping("/api/applications/{id}")
+    public Application get(
+            @RequestHeader(value = "X-Token", defaultValue = "") String token,
+            @PathVariable Long id) {
+        User user = auth.require(token);
+        return service.getFor(user, id);
     }
 
     @PostMapping("/api/applications")
     public Application create(
             @RequestHeader(value = "X-Token", defaultValue = "") String token,
-            @RequestParam String purpose,
-            @RequestParam BigDecimal amount) {
-        return service.create(auth.require(token), purpose, amount);
+            @RequestBody CreateApplicationRequest request) {
+        return service.create(auth.require(token), request.purpose(), request.amount());
     }
 
     @PostMapping("/api/applications/{id}/submit")

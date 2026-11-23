@@ -75,8 +75,9 @@ INSERT INTO users (username, password, role, project_id) VALUES ('finance1', '12
 | POST | `/api/logout` | 是 | — | 带 `X-Token`，作废该 token |
 | GET | `/api/ping` | 否 | — | 连通性检查，返回 `pong` |
 | GET | `/api/project` | 否 | — | 项目与三个金额 |
-| GET | `/api/applications` | 否 | — | 申请列表 |
-| POST | `/api/applications` | 是 | member | 新建草稿，参数 `purpose`、`amount` |
+| GET | `/api/applications` | 是 | 全部 | 申请列表：成员只看自己的，老师/财务看本项目 |
+| GET | `/api/applications/{id}` | 是 | 全部 | 单条申请，按归属校验 |
+| POST | `/api/applications` | 是 | member | 新建草稿，JSON body：`{"purpose":"...","amount":100}` |
 | POST | `/api/applications/{id}/submit` | 是 | member | 提交自己的草稿，冻结经费 |
 | POST | `/api/applications/{id}/approve` | 是 | teacher | 批准他人申请，参数 `amount` |
 | POST | `/api/applications/{id}/reject` | 是 | teacher | 拒绝他人申请，参数 `reason` |
@@ -89,8 +90,10 @@ INSERT INTO users (username, password, role, project_id) VALUES ('finance1', '12
 # 登录，拿到 token
 curl -X POST "http://localhost:8080/api/login?username=member1&password=123456"
 
-# 用 token 新建草稿
-curl -X POST "http://localhost:8080/api/applications?purpose=买试剂&amount=200" -H "X-Token: <token>"
+# 用 token 新建草稿（JSON body）
+curl -X POST "http://localhost:8080/api/applications" \
+  -H "X-Token: <token>" -H "Content-Type: application/json" \
+  -d '{"purpose":"买试剂","amount":200}'
 ```
 
 ## 权限校验顺序

@@ -1,4 +1,6 @@
-package backend;
+package com.ianchen.backend.controller;
+
+import com.ianchen.backend.service.AuthService;
 
 import java.util.Map;
 import org.springframework.web.bind.annotation.PostMapping;
